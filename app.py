@@ -6,8 +6,6 @@ from ultralytics import YOLO
 import datetime 
 import os
 import csv
-from arcgis.gis import GIS
-from arcgis.features import FeatureLayer, Feature
 import threading
 
 csv_filename = "eventos.csv"
