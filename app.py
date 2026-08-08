@@ -14,7 +14,7 @@ if not os.path.exists(csv_filename) or os.stat(csv_filename).st_size == 0:
         writer = csv.writer(archivo)
         writer.writerow(["Evento", "ID", "Zona", "Hora", "Duración", "Imagen"])
 
-model = YOLO('yolov8n.pt')
+model = YOLO('yolo11n.pt')
 cap = cv2.VideoCapture('rtsp://admin:admin123@192.168.1.34:554/live/ch00_1')
 
 frecuencia_deteccion = 10
