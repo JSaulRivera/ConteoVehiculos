@@ -1,1 +1,1 @@
-Detección de Vehhiculos
+Detección de Vehiculos
