@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>
+        Sistema de Monitoreo
+    </title>
+
+
+    <!-- Google Font -->
+
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
+    <!-- CSS -->
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+
+</head>
+
+
+<body>
+
+
+    <div id="container">
+
+
+        <!-- ==================================================
+         SIDEBAR
+    =================================================== -->
+
+        <aside id="sidebar">
+
+
+            <div class="logo">
+
+                <div class="logo-icon">
+                    🚗
+                </div>
+
+                <div>
+
+                    <h2>
+                        PARKING
+                    </h2>
+
+                    <span>
+                        MONITOR
+                    </span>
+
+                </div>
+
+            </div>
+
+
+            <!-- Estado -->
+
+            <section class="sidebar-section">
+
+                <h3>
+                    ESTADO
+                </h3>
+
+
+                <div class="status-card">
+
+                    <div class="status-row">
+
+                        <span>
+                            🟢 Disponibles
+                        </span>
+
+                        <strong id="sidebarDisponibles">
+                            --
+                        </strong>
+
+                    </div>
+
+
+                    <div class="status-row">
+
+                        <span>
+                            🔴 Ocupados
+                        </span>
+
+                        <strong id="sidebarOcupados">
+                            --
+                        </strong>
+
+                    </div>
+
+
+                    <div class="status-row">
+
+                        <span>
+                            ⚪ Total
+                        </span>
+
+                        <strong id="sidebarTotal">
+                            --
+                        </strong>
+
+                    </div>
+
+                </div>
+
+            </section>
+
+
+            <!-- Zonas -->
+
+            <section class="sidebar-section zonas-section">
+
+                <h3>
+                    ZONAS
+                </h3>
+
+
+                <div id="zonasLista" class="zonas-lista">
+
+                    <!-- JavaScript genera las zonas -->
+
+                </div>
+
+            </section>
+
+
+            <!-- Cámara -->
+
+            <div class="camera-status">
+
+                <span id="cameraIndicator" class="indicator"></span>
+
+                <div>
+
+                    <strong>
+                        CÁMARA
+                    </strong>
+
+                    <small id="cameraStatus">
+                        Conectando...
+                    </small>
+
+                </div>
+
+            </div>
+
+
+        </aside>
+
+
+
+        <!-- ==================================================
+         CONTENIDO
+    =================================================== -->
+
+        <main id="main">
+
+
+            <!-- Header -->
+
+            <header class="topbar">
+
+                <div>
+
+                    <h1>
+                        MONITOREO DE ESTACIONAMIENTO
+                    </h1>
+
+                    <p>
+                        Sistema de detección inteligente
+                    </p>
+
+                </div>
+
+
+                <div class="system-time">
+
+                    <span>
+                        ACTUALIZACIÓN
+                    </span>
+
+                    <strong id="lastUpdate">
+                        --
+                    </strong>
+
+                </div>
+
+            </header>
+
+
+
+            <!-- ==================================================
+             ESTADÍSTICAS
+        =================================================== -->
+
+            <section class="stats-grid">
+
+
+                <div class="stat-card">
+
+                    <div class="stat-icon green">
+                        🅿️
+                    </div>
+
+                    <div>
+
+                        <span>
+                            DISPONIBLES
+                        </span>
+
+                        <strong id="disponibles">
+                            --
+                        </strong>
+
+                    </div>
+
+                </div>
+
+
+                <div class="stat-card">
+
+                    <div class="stat-icon red">
+                        🚗
+                    </div>
+
+                    <div>
+
+                        <span>
+                            OCUPADOS
+                        </span>
+
+                        <strong id="ocupados">
+                            --
+                        </strong>
+
+                    </div>
+
+                </div>
+
+
+                <div class="stat-card">
+
+                    <div class="stat-icon blue">
+                        📊
+                    </div>
+
+                    <div>
+
+                        <span>
+                            TOTAL ESPACIOS
+                        </span>
+
+                        <strong id="total">
+                            --
+                        </strong>
+
+                    </div>
+
+                </div>
+
+
+                <div class="stat-card">
+
+                    <div class="stat-icon cyan">
+                        🎯
+                    </div>
+
+                    <div>
+
+                        <span>
+                            DETECCIONES
+                        </span>
+
+                        <strong id="detecciones">
+                            --
+                        </strong>
+
+                    </div>
+
+                </div>
+
+
+            </section>
+
+
+
+            <!-- ==================================================
+             VIDEO + INFORMACIÓN
+        =================================================== -->
+
+            <section class="dashboard-grid">
+
+
+                <!-- VIDEO -->
+
+                <div class="video-panel">
+
+                    <div class="panel-header">
+
+                        <div>
+
+                            <span class="panel-tag">
+                                LIVE
+                            </span>
+
+                            <h2>
+                                VIDEO EN TIEMPO REAL
+                            </h2>
+
+                        </div>
+
+
+                        <div class="live-status">
+
+                            <span class="live-dot"></span>
+
+                            EN VIVO
+
+                        </div>
+
+                    </div>
+
+
+                    <div class="video-container">
+
+                        <img id="videoFeed" src="{{ url_for('video_feed') }}" alt="Video de la cámara">
+
+
+                        <div class="video-overlay">
+
+                            <span id="fps">
+                                FPS: --
+                            </span>
+
+                        </div>
+
+                    </div>
+
+                </div>
+
+
+
+                <!-- ==================================================
+                 PANEL LATERAL
+                ================================================== -->
+
+                <div class="side-panel">
+
+
+                    <!-- ==================================================
+                    MODELADO 3D DE LA CÁMARA
+                    =================================================== -->
+
+                    <div class="camera-image-panel">
+
+                        <div class="panel-header">
+
+                            <div>
+
+                                <span class="panel-tag">
+                                    Modelo
+                                </span>
+
+                                <h2>
+                                    CÁMARA
+                                </h2>
+
+                            </div>
+
+                        </div>
+
+                            <div id="modeloContainer" style="margin-top: 20px; text-align: center;">
+                                <model-viewer id="modeloGLB" src="" alt="Modelo 3D" auto-rotate camera-controls
+                                    style="width: 100%; height: 150px; background-color: #001f33; border-radius: 10px;">
+                                </model-viewer>
+                            </div>
+                    </div>
+
+
+                    <!-- ==================================================
+                     DETECCIONES
+                    =================================================== -->
+
+                    <div class="detection-panel">
+
+                        <div class="panel-header">
+
+                            <div>
+
+                                <span class="panel-tag">
+                                    IA
+                                </span>
+
+                                <h2>
+                                    DETECCIONES
+                                </h2>
+
+                            </div>
+
+                        </div>
+
+
+                        <div id="deteccionesLista" class="detecciones-lista">
+
+                            <div class="empty-state">
+
+                                <span>
+                                    🔍
+                                </span>
+
+                                Esperando detecciones...
+
+                            </div>
+
+                        </div>
+
+                    </div>
+
+
+                </div>
+
+
+            </section>
+
+
+
+            <!-- ==================================================
+             ZONAS
+            =================================================== -->
+
+            <section class="panel zonas-panel">
+
+                <div class="panel-header">
+
+                    <div>
+
+                        <span class="panel-tag">
+                            PARKING
+                        </span>
+
+                        <h2>
+                            ESTADO DE ESPACIOS
+                        </h2>
+
+                    </div>
+
+                </div>
+
+
+                <div id="zonasDashboard" class="zonas-dashboard">
+
+                    <!-- JavaScript -->
+
+                </div>
+
+            </section>
+
+
+
+            <!-- ==================================================
+             EVENTOS
+        =================================================== -->
+
+            <section class="panel eventos-panel">
+
+                <div class="panel-header">
+
+                    <div>
+
+                        <span class="panel-tag">
+                            LOG
+                        </span>
+
+                        <h2>
+                            ÚLTIMOS EVENTOS
+                        </h2>
+
+                    </div>
+
+                    <button id="refreshEvents" class="refresh-button">
+                        ↻ Actualizar
+                    </button>
+
+                </div>
+
+
+                <div class="table-container">
+
+                    <table>
+
+                        <thead>
+
+                            <tr>
+
+                                <th>
+                                    EVENTO
+                                </th>
+
+                                <th>
+                                    ID
+                                </th>
+
+                                <th>
+                                    ZONA
+                                </th>
+
+                                <th>
+                                    HORA
+                                </th>
+
+                                <th>
+                                    DURACIÓN
+                                </th>
+
+                                <th>
+                                    IMAGEN
+                                </th>
+
+                            </tr>
+
+                        </thead>
+
+
+                        <tbody id="eventosTabla">
+
+                            <tr>
+
+                                <td colspan="6" class="empty-table">
+                                    Cargando eventos...
+                                </td>
+
+                            </tr>
+
+                        </tbody>
+
+                    </table>
+
+                </div>
+
+            </section>
+
+
+
+            <!-- Footer -->
+
+            <footer>
+
+                <span>
+                    SISTEMA DE MONITOREO
+                </span>
+
+                <span>
+                    YOLO11 • OpenCV • Flask
+                </span>
+
+            </footer>
+
+
+        </main>
+
+    </div>
+
+
+
+    <!-- JavaScript -->
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+
+
+</body>
+
+</html>

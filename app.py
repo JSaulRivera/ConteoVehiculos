@@ -1,191 +1,1456 @@
+from flask import Flask, render_template, Response, jsonify
 from collections import defaultdict
+from ultralytics import YOLO
 import cv2
 import numpy as np
-import time
-from ultralytics import YOLO
-import datetime 
+import datetime
 import os
 import csv
+import time
 import threading
 
-csv_filename = "eventos.csv"
-if not os.path.exists(csv_filename) or os.stat(csv_filename).st_size == 0:
-    with open(csv_filename, mode='w', newline='') as archivo:
-        writer = csv.writer(archivo)
-        writer.writerow(["Evento", "ID", "Zona", "Hora", "Duración", "Imagen"])
 
-model = YOLO('yolo11n.pt')
-cap = cv2.VideoCapture('rtsp://admin:admin123@192.168.1.34:554/live/ch00_1')
+# ============================================================
+# FLASK
+# ============================================================
 
-frecuencia_deteccion = 10
-contador_fotogramas = 0
+app = Flask(__name__)
+
+
+# ============================================================
+# CONFIGURACIÓN
+# ============================================================
+
+MODEL_PATH = "yolo11n.pt"
+
+# Reemplaza esta dirección con la URL RTSP de tu cámara
+RTSP_URL = os.getenv(
+    "RTSP_URL",
+    "rtsp://admin:admin123@192.168.1.34:554/live/ch00_1"
+)
+
+CSV_FILENAME = "eventos.csv"
+
+FRECUENCIA_DETECCION = 10
+
+TIEMPO_TOLERANCIA_SALIDA = 3
+
+DISTANCIA_MAXIMA_MISMO_OBJETO = 50
+
+TIEMPO_CAPTURA_ENTRADA = 10
+
+TIEMPO_MINIMO_SALIDA = 30
+
+
+# ============================================================
+# CARPETAS
+# ============================================================
 
 os.makedirs("capturas_entrada", exist_ok=True)
 os.makedirs("capturas_salida", exist_ok=True)
 
+
+# ============================================================
+# CSV
+# ============================================================
+
+if not os.path.exists(CSV_FILENAME) or os.stat(CSV_FILENAME).st_size == 0:
+    with open(CSV_FILENAME, mode="w", newline="", encoding="utf-8") as archivo:
+        writer = csv.writer(archivo)
+
+        writer.writerow([
+            "Evento",
+            "ID",
+            "Zona",
+            "Hora",
+            "Duración",
+            "Duración_segundos",
+            "Imagen",
+            "Ocupados"
+        ])
+
+
+csv_lock = threading.Lock()
+
+
+def registrar_evento_csv(datos):
+    try:
+        with csv_lock:
+            with open(
+                CSV_FILENAME,
+                mode="a",
+                newline="",
+                encoding="utf-8"
+            ) as archivo:
+
+                writer = csv.writer(archivo)
+                writer.writerow(datos)
+
+    except Exception as e:
+        print(f"[ERROR CSV] {e}")
+
+
+# ============================================================
+# MODELO YOLO
+# ============================================================
+
+print("[INFO] Cargando modelo YOLO...")
+
+model = YOLO(MODEL_PATH)
+
+print("[INFO] Modelo cargado correctamente.")
+
+
+# ============================================================
+# ZONAS
+# ============================================================
+
 zonas = {
-    '1': ([(3, 65), (3, 150), (75, 133), (75, 60)], (5, 10)),
-    '2': ([(80, 60), (80, 130), (135, 115), (135, 55)], (95, 10)),
-    '3': ([(140, 52), (140, 113), (200, 95), (200, 42)], (180, 10)),
-    '4': ([(205, 40), (205, 93), (290, 68), (290, 25)], (240, 10)),
-    '5': ([(295, 25), (295, 63), (350, 50), (350, 20)], (310, 10)),
-    '6': ([(515, 55), (470, 90), (555, 120), (555, 55)], (490, 60)),
-    '7': ([(465, 95), (400, 140), (530, 170), (550, 125)], (450, 95)),
-    '8': ([(395, 146), (300, 200), (480, 250), (523, 178)], (370, 155)),
-    '9': ([(295, 203), (150, 300), (410, 350), (475, 255)], (270, 210)),
+
+    "1": (
+        [(3, 65), (3, 150), (75, 133), (75, 60)],
+        (5, 10)
+    ),
+
+    "2": (
+        [(80, 60), (80, 130), (135, 115), (135, 55)],
+        (95, 10)
+    ),
+
+    "3": (
+        [(140, 52), (140, 113), (200, 95), (200, 42)],
+        (180, 10)
+    ),
+
+    "4": (
+        [(205, 40), (205, 93), (290, 68), (290, 25)],
+        (240, 10)
+    ),
+
+    "5": (
+        [(295, 25), (295, 63), (350, 50), (350, 20)],
+        (310, 10)
+    ),
+
+    "6": (
+        [(515, 55), (470, 90), (555, 120), (555, 55)],
+        (490, 60)
+    ),
+
+    "7": (
+        [(465, 95), (400, 140), (530, 170), (550, 125)],
+        (450, 95)
+    ),
+
+    "8": (
+        [(395, 146), (300, 200), (480, 250), (523, 178)],
+        (370, 155)
+    ),
+
+    "9": (
+        [(295, 203), (150, 300), (410, 350), (475, 255)],
+        (270, 210)
+    )
 }
+
+
 TOTAL_ESPACIOS = len(zonas)
 
+
+# ============================================================
+# ESTADO DE LAS ZONAS
+# ============================================================
+
 estado_zonas = {
+
     zona: {
-        'track_id': None,
-        'tiempo_entrada': None,
-        'centroide': None,
-        'ultimo_update': 0,
-        'imagen_guardada': False
+        "track_id": None,
+        "tiempo_entrada": None,
+        "centroide": None,
+        "ultimo_update": 0,
+        "imagen_guardada": False
     }
+
     for zona in zonas
 }
 
-TIEMPO_TOLERANCIA_SALIDA = 3
-DISTANCIA_MAXIMA_MISMO_OBJETO = 50
 
-track_history = defaultdict(lambda: [])
-puntos = []
+# ============================================================
+# HISTORIAL DE TRACKING
+# ============================================================
+
+track_history = defaultdict(list)
 
 
-def registrar_evento_csv(nombre_archivo, datos):
-    with open(nombre_archivo, mode='a', newline='') as archivo:
-        writer = csv.writer(archivo)
-        writer.writerow(datos)
-        formato = '%Y-%m-%d %H:%M:%S'
-        fecha_datetime = datetime.datetime.strptime(datos[3], formato)
-        print("Datos agregados.")
+# ============================================================
+# ESTADO GLOBAL PARA LA WEB
+# ============================================================
 
-while cap.isOpened():
-    success, frame = cap.read()
-    if not success:
-        break
+estado_global = {
 
-    contador_fotogramas += 1
-    if contador_fotogramas % frecuencia_deteccion != 0:
-        continue
+    "ocupados": 0,
+    "disponibles": TOTAL_ESPACIOS,
+    "total": TOTAL_ESPACIOS,
 
-    results = model.track(frame, persist=True, classes=[0, 2, 7])
-    boxes = results[0].boxes.xywh.cpu()
-    boxes_xyxy = results[0].boxes.xyxy.cpu()
-    track_ids = results[0].boxes.id.int().cpu().tolist() if results[0].boxes.id is not None else []
-    confidences = results[0].boxes.conf.cpu().tolist()
-    class_ids = results[0].boxes.cls.int().cpu().tolist()
-    names = model.names
+    "detecciones": 0,
 
-    ocupados = 0
-    tiempo_actual = time.time()
+    "fps": 0,
 
-    for box, box_xyxy, track_id, conf, cls in zip(boxes, boxes_xyxy,track_ids,confidences,class_ids):
+    "camara": "Conectando...",
 
-        x, y, w, h = box
-        cx, cy = int(x), int(y)
-        x1, y1, x2, y2 = map(int, box_xyxy)
-        nombre = names[cls]
-        confianza = conf * 100
-        centroide = (cx, cy)
+    "ultima_actualizacion": "",
 
-        track = track_history[track_id]
-        track.append((cx, cy))
-        if len(track) > 30:
-            track.pop(0)
-        points = np.hstack(track).astype(np.int32).reshape((-1, 1, 2))
-        texto = f"{nombre} {confianza:.1f}%"
-        
-        cv2.polylines(frame, [points], isClosed=False, color=(255, 255, 0), thickness=5) #punto medio
-        cv2.putText(frame,texto,(x1, y2 + 15),cv2.FONT_HERSHEY_SIMPLEX,0.6,(255, 255, 0),1) #clase
-        cv2.rectangle(frame, (x1, y1),(x2, y2),(255, 255, 0),1)   #Deteccion
+    "zonas": {},
 
-        for zona, (poligono, texto_pos) in zonas.items():
-            dentro = cv2.pointPolygonTest(np.array(poligono, np.int32), centroide, False) >= 0
-            zona_actual = estado_zonas[zona]
+    "objetos": []
 
-            if dentro:
-                ocupados += 1
+}
 
-                if zona_actual['track_id'] is None:
-                    estado_zonas[zona] = {
-                        'track_id': track_id,
-                        'tiempo_entrada': tiempo_actual,
-                        'centroide': centroide,
-                        'ultimo_update': tiempo_actual,
-                        'imagen_guardada': False
-                    }
+
+# Inicializar zonas
+
+for zona in zonas:
+
+    estado_global["zonas"][zona] = {
+
+        "ocupada": False,
+        "track_id": None,
+        "tiempo": "00:00:00"
+
+    }
+
+
+# ============================================================
+# FRAME GLOBAL
+# ============================================================
+
+latest_frame = None
+
+frame_lock = threading.Lock()
+
+estado_lock = threading.Lock()
+
+
+# ============================================================
+# CONEXIÓN A CÁMARA
+# ============================================================
+
+cap = None
+
+
+def conectar_camara():
+
+    global cap
+
+    while True:
+
+        try:
+
+            print("[INFO] Intentando conectar con la cámara...")
+
+            nuevo_cap = cv2.VideoCapture(RTSP_URL)
+
+            nuevo_cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
+            if nuevo_cap.isOpened():
+
+                cap = nuevo_cap
+
+                print("[OK] Cámara RTSP conectada.")
+
+                with estado_lock:
+                    estado_global["camara"] = "Conectada"
+
+                return True
+
+            nuevo_cap.release()
+
+            print("[ERROR] No se pudo conectar con la cámara.")
+
+        except Exception as e:
+
+            print(f"[ERROR CAMARA] {e}")
+
+        with estado_lock:
+            estado_global["camara"] = "Desconectada"
+
+        time.sleep(5)
+
+
+# ============================================================
+# PROCESAMIENTO DE VIDEO
+# ============================================================
+
+def procesar_video():
+
+    global cap
+    global latest_frame
+
+    contador_fotogramas = 0
+
+    tiempo_fps_inicio = time.time()
+
+    frames_fps = 0
+
+    conectar_camara()
+
+    while True:
+
+        try:
+
+            if cap is None or not cap.isOpened():
+
+                conectar_camara()
+
+                continue
+
+
+            success, frame = cap.read()
+
+
+            if not success:
+
+                print("[ERROR] No se pudo leer frame.")
+
+                try:
+                    cap.release()
+                except:
+                    pass
+
+                cap = None
+
+                with estado_lock:
+                    estado_global["camara"] = "Reconectando..."
+
+                time.sleep(2)
+
+                conectar_camara()
+
+                continue
+
+
+            contador_fotogramas += 1
+
+
+            # ------------------------------------------------
+            # Reducir frecuencia de procesamiento
+            # ------------------------------------------------
+
+            if contador_fotogramas % FRECUENCIA_DETECCION != 0:
+
+                continue
+
+
+            # ------------------------------------------------
+            # YOLO TRACK
+            # ------------------------------------------------
+
+            results = model.track(
+                frame,
+                persist=True,
+                classes=[0, 2, 7],
+                verbose=False
+            )
+
+
+            result = results[0]
+
+
+            # ------------------------------------------------
+            # DATOS DE DETECCIONES
+            # ------------------------------------------------
+
+            boxes = result.boxes
+
+
+            if boxes is None:
+
+                continue
+
+
+            boxes_xywh = boxes.xywh.cpu().numpy()
+
+            boxes_xyxy = boxes.xyxy.cpu().numpy()
+
+            confidences = boxes.conf.cpu().numpy()
+
+            class_ids = boxes.cls.cpu().numpy().astype(int)
+
+
+            if boxes.id is not None:
+
+                track_ids = boxes.id.int().cpu().numpy().tolist()
+
+            else:
+
+                track_ids = [None] * len(boxes_xyxy)
+
+
+            names = model.names
+
+
+            objetos_detectados = []
+
+
+            tiempo_actual = time.time()
+
+
+            # ------------------------------------------------
+            # DETECCIONES
+            # ------------------------------------------------
+
+            for i in range(len(boxes_xyxy)):
+
+                box = boxes_xywh[i]
+
+                box_xyxy = boxes_xyxy[i]
+
+                conf = float(confidences[i])
+
+                cls = int(class_ids[i])
+
+                track_id = track_ids[i]
+
+
+                x, y, w, h = box
+
+                cx = int(x)
+
+                cy = int(y)
+
+
+                x1, y1, x2, y2 = map(
+                    int,
+                    box_xyxy
+                )
+
+
+                nombre = names[cls]
+
+                confianza = conf * 100
+
+                centroide = (cx, cy)
+
+
+                # ------------------------------------------------
+                # HISTORIAL
+                # ------------------------------------------------
+
+                if track_id is not None:
+
+                    track = track_history[track_id]
+
+                    track.append((cx, cy))
+
+                    if len(track) > 30:
+                        track.pop(0)
+
+                    points = np.array(
+                        track,
+                        dtype=np.int32
+                    ).reshape((-1, 1, 2))
+
+
+                    cv2.polylines(
+                        frame,
+                        [points],
+                        isClosed=False,
+                        color=(255, 255, 0),
+                        thickness=2
+                    )
+
+
+                # ------------------------------------------------
+                # TEXTO
+                # ------------------------------------------------
+
+                texto = f"{nombre} {confianza:.1f}%"
+
+
+                # ------------------------------------------------
+                # RECTÁNGULO
+                # ------------------------------------------------
+
+                cv2.rectangle(
+                    frame,
+                    (x1, y1),
+                    (x2, y2),
+                    (255, 255, 0),
+                    2
+                )
+
+
+                # ------------------------------------------------
+                # ETIQUETA
+                # ------------------------------------------------
+
+                texto_y = max(y1 - 10, 20)
+
+
+                cv2.rectangle(
+                    frame,
+                    (x1, texto_y - 22),
+                    (
+                        x1 + len(texto) * 8 + 10,
+                        texto_y
+                    ),
+                    (0, 31, 51),
+                    -1
+                )
+
+
+                cv2.putText(
+                    frame,
+                    texto,
+                    (x1 + 5, texto_y - 6),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.5,
+                    (0, 255, 255),
+                    1,
+                    cv2.LINE_AA
+                )
+
+
+                # ------------------------------------------------
+                # DATOS PARA JAVASCRIPT
+                # ------------------------------------------------
+
+                objetos_detectados.append({
+
+                    "id": int(track_id)
+                    if track_id is not None
+                    else None,
+
+                    "nombre": nombre,
+
+                    "confianza": round(
+                        confianza,
+                        1
+                    ),
+
+                    "centroide": [
+                        cx,
+                        cy
+                    ]
+
+                })
+
+
+                # ------------------------------------------------
+                # COMPROBAR ZONAS
+                # ------------------------------------------------
+
+                if track_id is None:
+
+                    continue
+
+
+                for zona, datos_zona in zonas.items():
+
+                    poligono, texto_pos = datos_zona
+
+
+                    dentro = cv2.pointPolygonTest(
+                        np.array(
+                            poligono,
+                            np.int32
+                        ),
+                        centroide,
+                        False
+                    ) >= 0
+
+
+                    zona_actual = estado_zonas[zona]
+
+
+                    if dentro:
+
+                        # ----------------------------------------
+                        # ENTRADA A ZONA VACÍA
+                        # ----------------------------------------
+
+                        if zona_actual["track_id"] is None:
+
+                            estado_zonas[zona] = {
+
+                                "track_id": track_id,
+
+                                "tiempo_entrada": tiempo_actual,
+
+                                "centroide": centroide,
+
+                                "ultimo_update": tiempo_actual,
+
+                                "imagen_guardada": False
+                            }
+
+
+                        else:
+
+                            distancia = np.linalg.norm(
+                                np.array(centroide)
+                                -
+                                np.array(
+                                    zona_actual["centroide"]
+                                )
+                            )
+
+
+                            # ------------------------------------
+                            # MISMO OBJETO
+                            # ------------------------------------
+
+                            if (
+                                distancia
+                                <
+                                DISTANCIA_MAXIMA_MISMO_OBJETO
+                                and
+                                track_id
+                                ==
+                                zona_actual["track_id"]
+                            ):
+
+                                estado_zonas[zona][
+                                    "ultimo_update"
+                                ] = tiempo_actual
+
+
+                                estado_zonas[zona][
+                                    "centroide"
+                                ] = centroide
+
+
+                                # ----------------------------
+                                # CAPTURA ENTRADA
+                                # ----------------------------
+
+                                if (
+                                    not zona_actual[
+                                        "imagen_guardada"
+                                    ]
+                                    and
+                                    tiempo_actual
+                                    -
+                                    zona_actual[
+                                        "tiempo_entrada"
+                                    ]
+                                    >=
+                                    TIEMPO_CAPTURA_ENTRADA
+                                ):
+
+                                    timestamp_str = (
+                                        datetime.datetime.now()
+                                        .strftime(
+                                            "%Y-%m-%d_%H-%M-%S"
+                                        )
+                                    )
+
+
+                                    hora_exacta_str = (
+                                        datetime.datetime.now()
+                                        .strftime(
+                                            "%Y-%m-%d %H:%M:%S"
+                                        )
+                                    )
+
+
+                                    nombre_imagen = (
+                                        f"entrada_"
+                                        f"{zona}_"
+                                        f"id{track_id}_"
+                                        f"{timestamp_str}.jpg"
+                                    )
+
+
+                                    frame_captura = frame.copy()
+
+
+                                    ruta = os.path.join(
+                                        "capturas_entrada",
+                                        nombre_imagen
+                                    )
+
+
+                                    cv2.imwrite(
+                                        ruta,
+                                        frame_captura
+                                    )
+
+
+                                    # Se actualiza después
+                                    # para tener el valor real
+                                    # de ocupados.
+
+                                    zona_actual[
+                                        "imagen_guardada"
+                                    ] = True
+
+
+                                    print(
+                                        f"[ENTRADA] "
+                                        f"ID {track_id} "
+                                        f"en zona {zona}"
+                                    )
+
+
+                            # ------------------------------------
+                            # NUEVO OBJETO
+                            # ------------------------------------
+
+                            elif (
+                                track_id
+                                !=
+                                zona_actual["track_id"]
+                            ):
+
+                                estado_zonas[zona] = {
+
+                                    "track_id": track_id,
+
+                                    "tiempo_entrada":
+                                        tiempo_actual,
+
+                                    "centroide":
+                                        centroide,
+
+                                    "ultimo_update":
+                                        tiempo_actual,
+
+                                    "imagen_guardada":
+                                        False
+                                }
+
+
+            # ====================================================
+            # ACTUALIZAR ESTADO DE ZONAS
+            # ====================================================
+
+            ocupados = 0
+
+
+            for zona, datos_zona in zonas.items():
+
+                poligono, texto_pos = datos_zona
+
+                zona_actual = estado_zonas[zona]
+
+
+                tiempo_sin_update = (
+                    tiempo_actual
+                    -
+                    zona_actual["ultimo_update"]
+                )
+
+
+                zona_ocupada = (
+                    zona_actual["track_id"] is not None
+                    and
+                    tiempo_sin_update
+                    <=
+                    TIEMPO_TOLERANCIA_SALIDA
+                )
+
+
+                if zona_ocupada:
+
+                    ocupados += 1
+
+
+                # ------------------------------------------------
+                # COLOR ZONA
+                # ------------------------------------------------
+
+                if zona_ocupada:
+
+                    color = (
+                        0,
+                        0,
+                        255
+                    )
 
                 else:
-                    distancia = np.linalg.norm(np.array(centroide) - np.array(zona_actual['centroide']))
-                    if distancia < DISTANCIA_MAXIMA_MISMO_OBJETO:
-                        estado_zonas[zona]['ultimo_update'] = tiempo_actual
-                        estado_zonas[zona]['centroide'] = centroide
 
-                        if not zona_actual['imagen_guardada'] and tiempo_actual - zona_actual['tiempo_entrada'] >= 10:
-                            timestamp_str = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-                            hora_exacta_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                            nombre_imagen = f"entrada_{zona}_id{track_id}_{timestamp_str}.jpg"
-                            cv2.polylines(frame, [np.array(poligono, np.int32)], True, (255, 0, 0), 1)
-                            cv2.imwrite(f"capturas_entrada/{nombre_imagen}", frame)
-                            threading.Thread(target=registrar_evento_csv, args=("eventos.csv", ["ENTRADA", track_id, zona, hora_exacta_str, "","", nombre_imagen,ocupados])).start()
-                            estado_zonas[zona]['imagen_guardada'] = True
-                            print(f"[ENTRADA] ID {track_id} en zona {zona} (captura retrasada 10s)")
-
-                    elif track_id != zona_actual['track_id']:
-                        estado_zonas[zona] = {
-                            'track_id': track_id,
-                            'tiempo_entrada': tiempo_actual,
-                            'centroide': centroide,
-                            'ultimo_update': tiempo_actual,
-                            'imagen_guardada': False
-                        }
-
-                segundos = int(tiempo_actual - estado_zonas[zona]['tiempo_entrada'])
-                tiempo_formateado = time.strftime('%H:%M:%S', time.gmtime(segundos))
-                cv2.putText(frame, tiempo_formateado, (texto_pos[0]-20,texto_pos[1]+90), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)#cronometro
-
-            
-            for zona, (poligono, texto_pos) in zonas.items():
-                zona_actual = estado_zonas[zona]
-                tiempo_sin_update = tiempo_actual - zona_actual['ultimo_update']
-
-                # Se considera ocupada si hay un ID activo y ha tenido actualizaciones recientes
-                zona_ocupada = zona_actual['track_id'] is not None and tiempo_sin_update <= TIEMPO_TOLERANCIA_SALIDA
-
-                color = (0, 0, 255) if zona_ocupada else (0, 255, 0)  # Rojo si ocupada, verde si libre
-
-                cv2.polylines(frame, [np.array(poligono, np.int32)], True, color, 2)
-                cv2.putText(frame, zona, texto_pos, cv2.FONT_HERSHEY_COMPLEX, 0.5, (255, 255, 0), 1)
+                    color = (
+                        0,
+                        255,
+                        0
+                    )
 
 
-    # Salidas
-    for zona, datos in estado_zonas.items():
-        if datos['track_id'] is not None and tiempo_actual - datos['ultimo_update'] > TIEMPO_TOLERANCIA_SALIDA:
-            duracion_segundos = int(tiempo_actual - datos['tiempo_entrada'])
-            if duracion_segundos >= 30:
-                duracion_formato = time.strftime('%H:%M:%S', time.gmtime(duracion_segundos))
-                timestamp_str = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-                hora_exacta_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                nombre_imagen = f"salida_{zona}_id{datos['track_id']} {timestamp_str}.jpg"
-                cv2.polylines(frame, [np.array(poligono, np.int32)], True, (255, 0, 0), 1)
-                cv2.imwrite(f"capturas_salida/{nombre_imagen}", frame)
-                threading.Thread(target=registrar_evento_csv, args=("eventos.csv", ["SALIDA", datos['track_id'], zona, hora_exacta_str, duracion_formato,duracion_segundos, nombre_imagen, ocupados])).start()
-                
-                print(f"[SALIDA] ID {datos['track_id']} salió de zona {zona} (duración: {duracion_formato})")
+                # ------------------------------------------------
+                # DIBUJAR POLÍGONO
+                # ------------------------------------------------
+
+                cv2.polylines(
+                    frame,
+                    [
+                        np.array(
+                            poligono,
+                            np.int32
+                        )
+                    ],
+                    True,
+                    color,
+                    2
+                )
+
+
+                # ------------------------------------------------
+                # NÚMERO ZONA
+                # ------------------------------------------------
+
+                cv2.putText(
+                    frame,
+                    f"Zona {zona}",
+                    texto_pos,
+                    cv2.FONT_HERSHEY_COMPLEX,
+                    0.5,
+                    (255, 255, 0),
+                    1
+                )
+
+
+                # ------------------------------------------------
+                # CRONÓMETRO
+                # ------------------------------------------------
+
+                if (
+                    zona_actual["track_id"]
+                    is not None
+                ):
+
+                    segundos = int(
+                        tiempo_actual
+                        -
+                        zona_actual["tiempo_entrada"]
+                    )
+
+
+                    tiempo_formateado = time.strftime(
+                        "%H:%M:%S",
+                        time.gmtime(segundos)
+                    )
+
+
+                    cv2.putText(
+                        frame,
+                        tiempo_formateado,
+                        (
+                            texto_pos[0] - 20,
+                            texto_pos[1] + 90
+                        ),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.5,
+                        (255, 255, 255),
+                        1
+                    )
+
+
+                # ------------------------------------------------
+                # ESTADO EN VIDEO
+                # ------------------------------------------------
+
+                texto_estado = (
+                    "OCUPADO"
+                    if zona_ocupada
+                    else
+                    "LIBRE"
+                )
+
+
+                cv2.putText(
+                    frame,
+                    texto_estado,
+                    (
+                        texto_pos[0] - 20,
+                        texto_pos[1] + 110
+                    ),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.4,
+                    color,
+                    1
+                )
+
+
+            # ====================================================
+            # PROCESAR SALIDAS
+            # ====================================================
+
+            for zona, datos in list(
+                estado_zonas.items()
+            ):
+
+                if datos["track_id"] is None:
+
+                    continue
+
+
+                tiempo_sin_update = (
+                    tiempo_actual
+                    -
+                    datos["ultimo_update"]
+                )
+
+
+                if (
+                    tiempo_sin_update
+                    >
+                    TIEMPO_TOLERANCIA_SALIDA
+                ):
+
+                    duracion_segundos = int(
+                        tiempo_actual
+                        -
+                        datos["tiempo_entrada"]
+                    )
+
+
+                    if (
+                        duracion_segundos
+                        >=
+                        TIEMPO_MINIMO_SALIDA
+                    ):
+
+                        duracion_formato = time.strftime(
+                            "%H:%M:%S",
+                            time.gmtime(
+                                duracion_segundos
+                            )
+                        )
+
+
+                        timestamp_str = (
+                            datetime.datetime.now()
+                            .strftime(
+                                "%Y-%m-%d_%H-%M-%S"
+                            )
+                        )
+
+
+                        hora_exacta_str = (
+                            datetime.datetime.now()
+                            .strftime(
+                                "%Y-%m-%d %H:%M:%S"
+                            )
+                        )
+
+
+                        nombre_imagen = (
+                            f"salida_"
+                            f"{zona}_"
+                            f"id{datos['track_id']}_"
+                            f"{timestamp_str}.jpg"
+                        )
+
+
+                        ruta = os.path.join(
+                            "capturas_salida",
+                            nombre_imagen
+                        )
+
+
+                        frame_captura = frame.copy()
+
+
+                        cv2.imwrite(
+                            ruta,
+                            frame_captura
+                        )
+
+
+                        registrar_evento_csv([
+
+                            "SALIDA",
+
+                            datos["track_id"],
+
+                            zona,
+
+                            hora_exacta_str,
+
+                            duracion_formato,
+
+                            duracion_segundos,
+
+                            nombre_imagen,
+
+                            ocupados
+
+                        ])
+
+
+                        print(
+                            f"[SALIDA] "
+                            f"ID {datos['track_id']} "
+                            f"zona {zona} "
+                            f"duración "
+                            f"{duracion_formato}"
+                        )
+
+
+                    else:
+
+                        print(
+                            f"[IGNORADO] "
+                            f"ID {datos['track_id']} "
+                            f"salió de zona "
+                            f"{zona} antes de "
+                            f"{TIEMPO_MINIMO_SALIDA}s"
+                        )
+
+
+                    # --------------------------------------------
+                    # LIBERAR ZONA
+                    # --------------------------------------------
+
+                    estado_zonas[zona] = {
+
+                        "track_id": None,
+
+                        "tiempo_entrada": None,
+
+                        "centroide": None,
+
+                        "ultimo_update": 0,
+
+                        "imagen_guardada": False
+                    }
+
+
+            # ====================================================
+            # ESTADÍSTICAS
+            # ====================================================
+
+            disponibles = (
+                TOTAL_ESPACIOS
+                -
+                ocupados
+            )
+
+
+            # ====================================================
+            # INFORMACIÓN EN VIDEO
+            # ====================================================
+
+            cv2.rectangle(
+                frame,
+                (5, 5),
+                (300, 55),
+                (0, 31, 51),
+                -1
+            )
+
+
+            cv2.putText(
+                frame,
+                f"Ocupados: {ocupados}",
+                (15, 25),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.55,
+                (0, 0, 255),
+                2
+            )
+
+
+            cv2.putText(
+                frame,
+                f"Libres: {disponibles}",
+                (150, 25),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.55,
+                (0, 255, 0),
+                2
+            )
+
+
+            cv2.putText(
+                frame,
+                f"Total: {TOTAL_ESPACIOS}",
+                (15, 48),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.45,
+                (255, 255, 255),
+                1
+            )
+
+
+            # ====================================================
+            # FPS
+            # ====================================================
+
+            frames_fps += 1
+
+            tiempo_fps_actual = time.time()
+
+            tiempo_fps = (
+                tiempo_fps_actual
+                -
+                tiempo_fps_inicio
+            )
+
+
+            if tiempo_fps >= 1:
+
+                fps = round(
+                    frames_fps / tiempo_fps,
+                    1
+                )
+
+                frames_fps = 0
+
+                tiempo_fps_inicio = (
+                    tiempo_fps_actual
+                )
+
             else:
-                print(f"[IGNORADO] ID {datos['track_id']} salió de zona {zona} antes de 30s")
 
-            estado_zonas[zona] = {'track_id': None, 'tiempo_entrada': None, 'centroide': None, 'ultimo_update': 0, 'imagen_guardada': False}
+                fps = estado_global["fps"]
 
-    espacios_disponibles = TOTAL_ESPACIOS - ocupados
-    cv2.putText(frame, f"Disponibles: {espacios_disponibles}/{TOTAL_ESPACIOS}", (5, 380), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 0), 1)
-    cv2.imshow("Estacionamiento", frame)
-   
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
 
-cap.release()
-cv2.destroyAllWindows()
+            # ====================================================
+            # ACTUALIZAR ESTADO GLOBAL
+            # ====================================================
+
+            with estado_lock:
+
+                estado_global[
+                    "ocupados"
+                ] = ocupados
+
+
+                estado_global[
+                    "disponibles"
+                ] = disponibles
+
+
+                estado_global[
+                    "detecciones"
+                ] = len(
+                    objetos_detectados
+                )
+
+
+                estado_global[
+                    "fps"
+                ] = fps
+
+
+                estado_global[
+                    "camara"
+                ] = "Conectada"
+
+
+                estado_global[
+                    "ultima_actualizacion"
+                ] = (
+                    datetime.datetime.now()
+                    .strftime(
+                        "%Y-%m-%d %H:%M:%S"
+                    )
+                )
+
+
+                estado_global[
+                    "objetos"
+                ] = objetos_detectados
+
+
+                for zona in zonas:
+
+                    datos_zona = (
+                        estado_zonas[zona]
+                    )
+
+
+                    ocupada = (
+                        datos_zona[
+                            "track_id"
+                        ] is not None
+                        and
+                        tiempo_actual
+                        -
+                        datos_zona[
+                            "ultimo_update"
+                        ]
+                        <=
+                        TIEMPO_TOLERANCIA_SALIDA
+                    )
+
+
+                    if (
+                        ocupada
+                        and
+                        datos_zona[
+                            "tiempo_entrada"
+                        ] is not None
+                    ):
+
+                        segundos = int(
+                            tiempo_actual
+                            -
+                            datos_zona[
+                                "tiempo_entrada"
+                            ]
+                        )
+
+                    else:
+
+                        segundos = 0
+
+
+                    estado_global[
+                        "zonas"
+                    ][zona] = {
+
+                        "ocupada":
+                            ocupada,
+
+                        "track_id":
+                            datos_zona[
+                                "track_id"
+                            ],
+
+                        "tiempo":
+                            time.strftime(
+                                "%H:%M:%S",
+                                time.gmtime(
+                                    segundos
+                                )
+                            )
+                    }
+
+
+            # ====================================================
+            # CODIFICAR FRAME
+            # ====================================================
+
+            ret, buffer = cv2.imencode(
+                ".jpg",
+                frame,
+                [
+                    int(
+                        cv2.IMWRITE_JPEG_QUALITY
+                    ),
+                    80
+                ]
+            )
+
+
+            if ret:
+
+                with frame_lock:
+
+                    latest_frame = (
+                        buffer.tobytes()
+                    )
+
+
+        except Exception as e:
+
+            print(
+                f"[ERROR PROCESAMIENTO] {e}"
+            )
+
+            time.sleep(1)
+
+
+# ============================================================
+# GENERADOR DE VIDEO
+# ============================================================
+
+def generar_video():
+
+    while True:
+
+        with frame_lock:
+
+            frame = latest_frame
+
+
+        if frame is not None:
+
+            yield (
+                b"--frame\r\n"
+                b"Content-Type: image/jpeg\r\n\r\n"
+                +
+                frame
+                +
+                b"\r\n"
+            )
+
+
+        time.sleep(0.03)
+
+
+# ============================================================
+# RUTA PRINCIPAL
+# ============================================================
+
+@app.route("/")
+def index():
+
+    return render_template(
+        "index.html"
+    )
+
+
+# ============================================================
+# VIDEO
+# ============================================================
+
+@app.route("/video_feed")
+def video_feed():
+
+    return Response(
+        generar_video(),
+        mimetype=(
+            "multipart/x-mixed-replace; "
+            "boundary=frame"
+        )
+    )
+
+
+# ============================================================
+# API ESTADO
+# ============================================================
+
+@app.route("/api/estado")
+def api_estado():
+
+    with estado_lock:
+
+        datos = {
+
+            "ocupados":
+                estado_global["ocupados"],
+
+            "disponibles":
+                estado_global["disponibles"],
+
+            "total":
+                estado_global["total"],
+
+            "detecciones":
+                estado_global["detecciones"],
+
+            "fps":
+                estado_global["fps"],
+
+            "camara":
+                estado_global["camara"],
+
+            "ultima_actualizacion":
+                estado_global[
+                    "ultima_actualizacion"
+                ],
+
+            "zonas":
+                estado_global["zonas"],
+
+            "objetos":
+                estado_global["objetos"]
+        }
+
+
+    return jsonify(datos)
+
+
+# ============================================================
+# API EVENTOS
+# ============================================================
+
+@app.route("/api/eventos")
+def api_eventos():
+
+    eventos = []
+
+
+    try:
+
+        with csv_lock:
+
+            with open(
+                CSV_FILENAME,
+                mode="r",
+                encoding="utf-8"
+            ) as archivo:
+
+                reader = csv.DictReader(
+                    archivo
+                )
+
+
+                for fila in reader:
+
+                    eventos.append(fila)
+
+
+        # Últimos 20 eventos
+
+        eventos = eventos[-20:]
+
+        eventos.reverse()
+
+
+    except Exception as e:
+
+        print(
+            f"[ERROR EVENTOS] {e}"
+        )
+
+
+    return jsonify(eventos)
+
+@app.route("/capturas_entrada/<path:nombre>")
+def captura_entrada(nombre):
+    return app.send_static_file(
+        os.path.join(
+            "..",
+            "capturas_entrada",
+            nombre
+        )
+    )
+# ============================================================
+# INICIAR
+# ============================================================
+
+if __name__ == "__main__":
+
+    hilo_video = threading.Thread(
+        target=procesar_video,
+        daemon=True
+    )
+
+    hilo_video.start()
+
+
+    print("")
+    print(
+        "=========================================="
+    )
+
+    print(
+        " SISTEMA DE MONITOREO DE ESTACIONAMIENTO"
+    )
+
+    print(
+        "=========================================="
+    )
+
+    print(
+        "Servidor: http://127.0.0.1:5000"
+    )
+
+    print(
+        "Presiona CTRL+C para detener."
+    )
+
+    print("")
+
+
+    app.run(
+        host="0.0.0.0",
+        port=5000,
+        debug=False,
+        threaded=True
+    )
