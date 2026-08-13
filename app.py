@@ -850,26 +850,26 @@ def procesar_video():
                 # ESTADO EN VIDEO
                 # ------------------------------------------------
 
-                texto_estado = (
-                    "OCUPADO"
-                    if zona_ocupada
-                    else
-                    "LIBRE"
-                )
+                # texto_estado = (
+                #     "OCUPADO"
+                #     if zona_ocupada
+                #     else
+                #     "LIBRE"
+                # )
 
 
-                cv2.putText(
-                    frame,
-                    texto_estado,
-                    (
-                        texto_pos[0] - 20,
-                        texto_pos[1] + 110
-                    ),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.4,
-                    color,
-                    1
-                )
+                # cv2.putText(
+                #     frame,
+                #     texto_estado,
+                #     (
+                #         texto_pos[0] - 20,
+                #         texto_pos[1] + 110
+                #     ),
+                #     cv2.FONT_HERSHEY_SIMPLEX,
+                #     0.4,
+                #     color,
+                #     1
+                # )
 
 
             # ====================================================
@@ -1032,46 +1032,46 @@ def procesar_video():
             # INFORMACIÓN EN VIDEO
             # ====================================================
 
-            cv2.rectangle(
-                frame,
-                (5, 5),
-                (300, 55),
-                (0, 31, 51),
-                -1
-            )
+            # cv2.rectangle(
+            #     frame,
+            #     (5, 5),
+            #     (300, 55),
+            #     (0, 31, 51),
+            #     -1
+            # )
 
 
-            cv2.putText(
-                frame,
-                f"Ocupados: {ocupados}",
-                (15, 25),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.55,
-                (0, 0, 255),
-                2
-            )
+            # cv2.putText(
+            #     frame,
+            #     f"Ocupados: {ocupados}",
+            #     (15, 25),
+            #     cv2.FONT_HERSHEY_SIMPLEX,
+            #     0.55,
+            #     (0, 0, 255),
+            #     2
+            # )
 
 
-            cv2.putText(
-                frame,
-                f"Libres: {disponibles}",
-                (150, 25),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.55,
-                (0, 255, 0),
-                2
-            )
+            # cv2.putText(
+            #     frame,
+            #     f"Libres: {disponibles}",
+            #     (150, 25),
+            #     cv2.FONT_HERSHEY_SIMPLEX,
+            #     0.55,
+            #     (0, 255, 0),
+            #     2
+            # )
 
 
-            cv2.putText(
-                frame,
-                f"Total: {TOTAL_ESPACIOS}",
-                (15, 48),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.45,
-                (255, 255, 255),
-                1
-            )
+            # cv2.putText(
+            #     frame,
+            #     f"Total: {TOTAL_ESPACIOS}",
+            #     (15, 48),
+            #     cv2.FONT_HERSHEY_SIMPLEX,
+            #     0.45,
+            #     (255, 255, 255),
+            #     1
+            # )
 
 
             # ====================================================
