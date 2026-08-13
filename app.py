@@ -26,7 +26,7 @@ MODEL_PATH = "yolo11n.pt"
 # Reemplaza esta dirección con la URL RTSP de tu cámara
 RTSP_URL = os.getenv(
     "RTSP_URL",
-    "rtsp://admin:admin123@192.168.1.34:554/live/ch00_1"
+    "rtsp://admin:admin123@192.168.1.43:554/live/ch00_1"
 )
 
 CSV_FILENAME = "eventos.csv"
