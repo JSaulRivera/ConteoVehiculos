@@ -59,7 +59,7 @@ const refreshEvents =
     document.getElementById("refreshEvents");
 
 const modeloViewer = document.getElementById('modeloGLB');
-        modeloViewer.src = "/static/Modelado/camara.glb";
+        modeloViewer.src = MODELO_GLB_URL;
 /* =========================================================
    OBTENER ESTADO
 ========================================================= */
@@ -67,9 +67,9 @@ const modeloViewer = document.getElementById('modeloGLB');
 async function obtenerEstado() {
 
     try {
-
+        
         const response =
-            await fetch("/api/estado", {
+            await fetch(API_ESTADO_URL, {
                 cache: "no-store"
             });
 
@@ -457,7 +457,7 @@ async function obtenerEventos() {
 
         const response =
             await fetch(
-                "/api/eventos",
+                API_EVENTOS_URL,
                 {
                     cache: "no-store"
                 }

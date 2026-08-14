@@ -19,7 +19,10 @@
     <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
     <!-- CSS -->
 
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <<link
+    rel="stylesheet"
+    href="{{ url_for('static', filename='css/style.css') }}"
+>
 
 </head>
 
@@ -329,7 +332,11 @@
 
                     <div class="video-container">
 
-                        <img id="videoFeed" src="{{ url_for('video_feed') }}" alt="Video de la cámara">
+                        <img
+    id="video"
+    src="{{ url_for('video_feed') }}"
+    alt="Video de la cámara"
+>
 
 
                         <div class="video-overlay">
@@ -569,8 +576,14 @@
 
 
     <!-- JavaScript -->
+<script>
+    const API_ESTADO_URL = "{{ url_for('api_estado') }}";
+    const API_EVENTOS_URL = "{{ url_for('api_eventos') }}";
+    const MODELO_GLB_URL = "{{ url_for('static', filename='Modelado/camara.glb') }}";
+</script>
 
-    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+
 
 
 </body>
