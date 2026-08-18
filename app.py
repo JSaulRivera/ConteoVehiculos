@@ -1,6 +1,7 @@
 
 from flask import Flask, render_template, Response, jsonify
 from werkzeug.middleware.proxy_fix import ProxyFix
+from dotenv import load_dotenv
 from collections import defaultdict
 from ultralytics import YOLO
 import cv2
@@ -11,6 +12,7 @@ import csv
 import time
 import threading
 
+load_dotenv()
 
 # ============================================================
 # FLASK
@@ -34,10 +36,12 @@ app.wsgi_app = ProxyFix(
 MODEL_PATH = "yolo11n.pt"
 
 # URL RTSP DE LA CÁMARA
-RTSP_URL = os.getenv(
-    "RTSP_URL",
-    "rtsp://admin:admin123@192.168.1.34:554/live/ch00_1"
-)
+RTSP_URL = os.getenv("RTSP_URL")
+
+if not RTSP_URL:
+    raise ValueError(
+        "No se encontró RTSP_URL en el archivo .env"
+    )
 
 CSV_FILENAME = "eventos.csv"
 
